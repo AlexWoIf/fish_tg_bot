@@ -6,8 +6,8 @@ from enum import Enum
 import redis
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (CommandHandler, ConversationHandler, Filters,
-                          MessageHandler, Updater)
+from telegram.ext import (CallbackQueryHandler, CommandHandler,
+                          ConversationHandler, Updater)
 
 import strapi
 from logger_handlers import TelegramLogsHandler
@@ -18,26 +18,41 @@ logger = logging.getLogger(__file__)
 
 class Status(Enum):
     HANDLE_MENU = 0
+    HANDLE_DESCRIPTION = 1
 
 
 def start(update, context):
-    logger.debug(f'Enter cmd_start: {update.message.text=}')
+    logger.debug(f'Enter cmd_start: {update=}')
 
     backend = context.bot_data['backend']
     products = backend.get_all_products()
 
     text = 'Please choose:'
     keyboard = [
-        [InlineKeyboardButton(
-            product.get('attributes', {}).get('title'),
-            callback_data=f'product:{product.get("id")}'),]
-        for product in products
+        [InlineKeyboardButton(product_title,
+                              callback_data=f'product:{product_id}'),]
+        for (product_id, product_title) in products
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text(text, reply_markup=reply_markup)
-    storage = context.bot_data['storage']
-    storage.set(update.message.from_user.id, 0)
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text=text, reply_markup=reply_markup)
     return Status.HANDLE_MENU
+
+
+def product_details(update, context):
+    logger.debug(f'Enter cmd_start: {update.callback_query=}')
+
+    button_details = update.callback_query.data.split(':')
+    product_id = button_details[1]
+    backend = context.bot_data['backend']
+    title, description, price, picture = backend.get_product(product_id)
+    text = f'{title} ({price} руб. за кг)\n\n{description}'
+    keyboard = [[InlineKeyboardButton('Назад', callback_data='back')],]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    context.bot.send_photo(chat_id=update.effective_chat.id, caption=text,
+                           photo=picture, reply_markup=reply_markup, )
+    update.callback_query.delete_message()
+    return Status.HANDLE_DESCRIPTION
 
 
 if __name__ == '__main__':
@@ -70,7 +85,15 @@ if __name__ == '__main__':
         conversation = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
-                Status.HANDLE_MENU: [CommandHandler('start', start),],
+                Status.HANDLE_MENU: [
+                    CallbackQueryHandler(
+                        product_details,
+                        pattern=r'^product:\d+$'
+                    ),
+                ],
+                Status.HANDLE_DESCRIPTION: [
+                    CallbackQueryHandler(start, pattern=r'^back$')
+                ]
             },
             fallbacks=[],
         )
