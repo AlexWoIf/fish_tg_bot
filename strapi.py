@@ -14,29 +14,56 @@ API_PATH = '/api/'
 logger = logging.getLogger(__file__)
 
 
-@retry((ReadTimeout, ConnectionError),
-       delay=0, max_delay=3600, backoff=2, jitter=1, )
-def persistent_request(url, params={}, headers={}):
-    logger.debug(f'Send request with {params=} {headers=}')
-    response = requests.get(url, params=params, headers=headers, )
-    response.raise_for_status()
-    logger.debug(f"Получили ответ. {response=}")
-    return response
-
-
 class Strapi():
 
     def __init__(self, api_token, base_url=BACKEND_ROOTURL, api_path=API_PATH):
-        self.api_token = api_token
+        self.headers = {'Authorization': f'bearer {api_token}'}
         self.base_url = base_url
         self.api_url = urljoin(base_url, api_path)
 
+    @retry((ReadTimeout, ConnectionError),
+           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    def get_api(self, endpoint, params={}):
+        api_url = urljoin(self.api_url, f'{endpoint}')
+        logger.debug(f'Send request {api_url=}')
+        response = requests.get(api_url, params=params, headers=self.headers, )
+        response.raise_for_status()
+        logger.debug(f"Получили ответ. {response=}")
+        return response.json()
+
+    @retry((ReadTimeout, ConnectionError),
+           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    def post_api(self, endpoint, data={}):
+        api_url = urljoin(self.api_url, f'{endpoint}')
+        logger.debug(f'Send request {api_url=}')
+        response = requests.post(api_url, json=data, headers=self.headers, )
+        response.raise_for_status()
+        logger.debug(f"Получили ответ. {response=}")
+        return response.json()
+
+    @retry((ReadTimeout, ConnectionError),
+           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    def delete_api(self, endpoint,):
+        api_url = urljoin(self.api_url, f'{endpoint}')
+        logger.debug(f'Send request {api_url=}')
+        response = requests.delete(api_url, headers=self.headers, )
+        response.raise_for_status()
+        logger.debug(f"Получили ответ. {response=}")
+        return response.json()
+
+    @retry((ReadTimeout, ConnectionError),
+           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    def get_asset(self, url):
+        resource_url = urljoin(self.base_url, f'{url}')
+        logger.debug(f'Send request {resource_url=}')
+        response = requests.get(resource_url)
+        response.raise_for_status()
+        logger.debug(f"Получили ответ. {response=}")
+        return response.content
+
     def get_all_products(self):
-        api_url = urljoin(self.api_url, 'products/')
-        params = {}
-        headers = {'Authorization': f'bearer {self.api_token}'}
-        response = persistent_request(api_url, params, headers)
-        products = response.json().get('data', [])
+        api_response = self.get_api('products')
+        products = api_response.get('data', [])
         return [
                     (product.get("id"),
                      product.get('attributes', {}).get('title'),)
@@ -44,17 +71,58 @@ class Strapi():
                ]
 
     def get_product(self, product_id):
-        api_url = urljoin(self.api_url, f'products/{product_id}')
         params = {'populate': '*'}
-        headers = {'Authorization': f'bearer {self.api_token}'}
-        response = persistent_request(api_url, params, headers)
-        product = response.json().get('data', {}).get('attributes', {})
+        api_response = self.get_api(f'products/{product_id}', params)
+        product = api_response.get('data', {}).get('attributes', {})
         title = product.get('title', '')
         description = product.get('description', '')
         price = product.get('price', '')
-        img_filepath = (product.get('picture', {}).get('data', {})
-                               .get('attributes').get('url'))
-        img_url = urljoin(self.base_url, img_filepath)
-        response = persistent_request(img_url)
-        picture = BytesIO(response.content)
+        image = (product.get('picture', {}).get('data', {})
+                        .get('attributes').get('url'))
+        picture = BytesIO(self.get_asset(image))
         return title, description, price, picture
+
+    def get_or_create_cart(self, telegram_id):
+        params = {'filters[telegram_id][$eq]': telegram_id}
+        api_response = self.get_api('carts', params)
+        cart = api_response.get('data')
+        if not cart:
+            payload = {"data": {"telegram_id": telegram_id}}
+            api_response = self.post_api('carts', payload)
+            cart = api_response.get('data')
+        else:
+            cart = cart[0]
+        return cart.get('id', 0)
+
+    def add_to_cart(self, telegram_id, product_id, quantity):
+        cart_id = self.get_or_create_cart(telegram_id)
+        payload = {"data": {"product": product_id, "cart": cart_id},
+                   "quantity": quantity}
+        self.post_api('cart-products', payload)
+
+    def remove_from_cart(self, cart_product_id):
+        api_response = self.delete_api(f'cart-products/{cart_product_id}')
+        print(api_response)
+
+    def get_cart_content(self, telegram_id):
+        cart_id = self.get_or_create_cart(telegram_id)
+        params = {'populate': 'cart_products.product'}
+        api_response = self.get_api(f'carts/{cart_id}', params)
+        api_cart_products = (api_response.get('data', {}).get('attributes', {})
+                             .get('cart_products', {}).get('data', []))
+        cart_products = [
+            (
+                cart_product.get('id'),
+                cart_product.get('attributes', {}).get('quantity'),
+                cart_product.get('attributes', {}).get('product', {})
+                            .get('data', {}).get('attributes', {})
+                            .get('title'),
+                cart_product.get('attributes', {}).get('product', {})
+                            .get('data', {}).get('attributes', {})
+                            .get('description'),
+                cart_product.get('attributes', {}).get('product', {})
+                            .get('data', {}).get('attributes', {})
+                            .get('price'),
+            ) for cart_product in api_cart_products
+        ]
+        return cart_products
