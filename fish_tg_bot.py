@@ -11,9 +11,9 @@ from telegram.ext import (CallbackQueryHandler, CommandHandler,
                           ConversationHandler, Filters, MessageHandler,
                           Updater)
 
-
 import strapi
 from logger_handlers import TelegramLogsHandler
+from persistence import RedisPersistence
 
 logger = logging.getLogger(__file__)
 
@@ -75,6 +75,8 @@ def add_to_cart(update, context):
     product_id = button_details[1]
 
     backend.add_to_cart(update.effective_chat.id, product_id, None)
+    update.callback_query.answer('Добавлено в корзину')
+    return Status.HANDLE_CART
 
 
 def remove_from_cart(update, context):
@@ -84,7 +86,6 @@ def remove_from_cart(update, context):
     button_details = update.callback_query.data.split(':')
     cart_product_id = button_details[1]
 
-    print(f'{cart_product_id=}')
     backend.remove_from_cart(cart_product_id)
     update.callback_query.delete_message()
     return show_cart(update, context)
@@ -134,10 +135,12 @@ def check_email(update, context):
     if emails:
         backend.save_email(update.effective_chat.id, emails[0])
         text = 'Email сохранен. Менеджер свяжется с Вами в ближайшее время.'
-    else:
-        text = 'Такой email недопустим. Попробуйте ввести еще раз.'
+        update.message.reply_text(text)
+        return Status.HANDLE_CART
+    text = 'Такой email недопустим. Попробуйте ввести еще раз.'
     update.message.reply_text(text)
-
+    return Status.WAITING_EMAIL
+    
 
 if __name__ == '__main__':
     load_dotenv()
@@ -149,26 +152,22 @@ if __name__ == '__main__':
     if log_chat:
         if not log_tg_token:
             log_tg_token = tg_token
-        #logger.addHandler(TelegramLogsHandler(log_tg_token, log_chat))
-    logging.basicConfig(
-        encoding='utf-8', level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    )
+        logger.addHandler(TelegramLogsHandler(log_tg_token, log_chat))
     logger.debug('Start logging')
 
     redis_host = os.getenv('REDIS_HOST')
     redis_port = os.getenv('REDIS_PORT')
     redis_password = os.getenv('REDIS_PASSWORD')
-    storage = redis.Redis(host=redis_host, port=redis_port,
-                          password=redis_password)
+    redis_storage = redis.Redis(host=redis_host, port=redis_port,
+                                password=redis_password)
+    persistence = RedisPersistence(redis_storage)
 
     strapi_token = os.getenv('STRAPI_TOKEN')
     backend = strapi.Strapi(strapi_token)
 
     try:
-        updater = Updater(tg_token)
+        updater = Updater(tg_token, persistence=persistence)
         dispatcher = updater.dispatcher
-        dispatcher.bot_data['storage'] = storage
         dispatcher.bot_data['backend'] = backend
         conversation = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
@@ -195,6 +194,8 @@ if __name__ == '__main__':
                 ],
             },
             fallbacks=[],
+            name='fish_shop_conversation',
+            persistent=True,
         )
         dispatcher.add_handler(conversation)
         updater.start_polling()
