@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import traceback
 from enum import Enum
 
@@ -7,11 +8,12 @@ import redis
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (CallbackQueryHandler, CommandHandler,
-                          ConversationHandler, Updater)
+                          ConversationHandler, Filters, MessageHandler,
+                          Updater)
+
 
 import strapi
 from logger_handlers import TelegramLogsHandler
-
 
 logger = logging.getLogger(__file__)
 
@@ -20,6 +22,7 @@ class Status(Enum):
     HANDLE_MENU = 0
     HANDLE_DESCRIPTION = 1
     HANDLE_CART = 2
+    WAITING_EMAIL = 3
 
 
 def start(update, context):
@@ -75,7 +78,7 @@ def add_to_cart(update, context):
 
 
 def remove_from_cart(update, context):
-    logger.debug(f'Enter add_to_cart: {update.callback_query=}')
+    logger.debug(f'Enter remove_from_cart: {update.callback_query=}')
 
     backend = context.bot_data['backend']
     button_details = update.callback_query.data.split(':')
@@ -104,12 +107,36 @@ def show_cart(update, context):
                 f'<i>{product_description}</i>\n' \
                 f'Количество: {product_quantity}\n' \
                 f'<u>{product_price}руб. за кг</u>\n\n'
+    keyboard.append([InlineKeyboardButton('Оплатить',
+                                          callback_data='payment')])
     keyboard.append([InlineKeyboardButton('В меню',
                                           callback_data='productlist')])
     reply_markup = InlineKeyboardMarkup(keyboard)
     context.bot.send_message(chat_id=update.effective_chat.id, text=text, 
                              parse_mode="HTML", reply_markup=reply_markup)
     return Status.HANDLE_CART
+
+
+def ask_email(update, context):
+    logger.debug(f'Enter ask_email: {update.callback_query=}')
+
+    text = 'Пришлите, пожалуйста, Ваш е-майл'
+    context.bot.send_message(chat_id=update.effective_chat.id, text=text, )
+    return Status.WAITING_EMAIL
+
+
+def check_email(update, context):
+    logger.debug(f'Enter check_email: {update=}')
+
+    backend = context.bot_data['backend']
+    emails = re.findall(r'([a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})',
+                        update.message.text)
+    if emails:
+        backend.save_email(update.effective_chat.id, emails[0])
+        text = 'Email сохранен. Менеджер свяжется с Вами в ближайшее время.'
+    else:
+        text = 'Такой email недопустим. Попробуйте ввести еще раз.'
+    update.message.reply_text(text)
 
 
 if __name__ == '__main__':
@@ -159,8 +186,13 @@ if __name__ == '__main__':
                 Status.HANDLE_CART: [
                     CallbackQueryHandler(remove_from_cart,
                                          pattern=r'^remove:\d+$'),
+                    CallbackQueryHandler(ask_email, pattern=r'^payment$'),
                     CallbackQueryHandler(start, pattern=r'^productlist$'),
-                ]
+                ],
+                Status.WAITING_EMAIL: [
+                    MessageHandler(Filters.text & (~Filters.command),
+                                   check_email),
+                ],
             },
             fallbacks=[],
         )
