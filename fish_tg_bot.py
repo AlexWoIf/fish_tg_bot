@@ -3,6 +3,7 @@ import os
 import re
 import traceback
 from enum import Enum
+from textwrap import dedent
 
 import redis
 from dotenv import load_dotenv
@@ -104,16 +105,19 @@ def show_cart(update, context):
             InlineKeyboardButton(f'Убрать из корзины {product_title}',
                                  callback_data=f'remove:{product_id}')
         ])
-        text += f'#{product_id}.<b>{product_title}</b>\n' \
-                f'<i>{product_description}</i>\n' \
-                f'Количество: {product_quantity}\n' \
-                f'<u>{product_price}руб. за кг</u>\n\n'
+        text += f'''
+            #{product_id}.<b>{product_title}</b>
+            <i>{product_description}</i>
+            Количество: {product_quantity}
+            <u>{product_price}руб. за кг</u>
+        '''
+    text = dedent(text)
     keyboard.append([InlineKeyboardButton('Оплатить',
                                           callback_data='payment')])
     keyboard.append([InlineKeyboardButton('В меню',
                                           callback_data='productlist')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    context.bot.send_message(chat_id=update.effective_chat.id, text=text, 
+    context.bot.send_message(chat_id=update.effective_chat.id, text=text,
                              parse_mode="HTML", reply_markup=reply_markup)
     return Status.HANDLE_CART
 
@@ -140,10 +144,10 @@ def check_email(update, context):
     text = 'Такой email недопустим. Попробуйте ввести еще раз.'
     update.message.reply_text(text)
     return Status.WAITING_EMAIL
-    
+
 
 if __name__ == '__main__':
-    load_dotenv()
+    load_dotenv(override=True)
     tg_token = os.getenv('TELEGRAM_BOT_TOKEN')
     loglevel = os.getenv('LOG_LEVEL', default='INFO')
     log_chat = os.getenv('LOG_TG_CHAT_ID')

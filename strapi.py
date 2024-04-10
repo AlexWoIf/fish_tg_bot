@@ -23,8 +23,8 @@ class Strapi():
 
     @retry((ReadTimeout, ConnectionError),
            delay=0, max_delay=3600, backoff=2, jitter=1, )
-    def get_api(self, endpoint, params={}):
-        api_url = urljoin(self.api_url, f'{endpoint}')
+    def read(self, endpoint, params={}):
+        api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
         response = requests.get(api_url, params=params, headers=self.headers, )
         response.raise_for_status()
@@ -33,8 +33,8 @@ class Strapi():
 
     @retry((ReadTimeout, ConnectionError),
            delay=0, max_delay=3600, backoff=2, jitter=1, )
-    def post_api(self, endpoint, data={}):
-        api_url = urljoin(self.api_url, f'{endpoint}')
+    def create(self, endpoint, data={}):
+        api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
         response = requests.post(api_url, json=data, headers=self.headers, )
         response.raise_for_status()
@@ -43,8 +43,8 @@ class Strapi():
 
     @retry((ReadTimeout, ConnectionError),
            delay=0, max_delay=3600, backoff=2, jitter=1, )
-    def put_api(self, endpoint, data={}):
-        api_url = urljoin(self.api_url, f'{endpoint}')
+    def update(self, endpoint, data={}):
+        api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
         response = requests.put(api_url, json=data, headers=self.headers, )
         response.raise_for_status()
@@ -53,8 +53,8 @@ class Strapi():
 
     @retry((ReadTimeout, ConnectionError),
            delay=0, max_delay=3600, backoff=2, jitter=1, )
-    def delete_api(self, endpoint,):
-        api_url = urljoin(self.api_url, f'{endpoint}')
+    def delete(self, endpoint,):
+        api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
         response = requests.delete(api_url, headers=self.headers, )
         response.raise_for_status()
@@ -64,7 +64,7 @@ class Strapi():
     @retry((ReadTimeout, ConnectionError),
            delay=0, max_delay=3600, backoff=2, jitter=1, )
     def get_asset(self, url):
-        resource_url = urljoin(self.base_url, f'{url}')
+        resource_url = urljoin(self.base_url, url)
         logger.debug(f'Send request {resource_url=}')
         response = requests.get(resource_url)
         response.raise_for_status()
@@ -72,17 +72,15 @@ class Strapi():
         return response.content
 
     def get_all_products(self):
-        api_response = self.get_api('products')
+        api_response = self.read('products')
         products = api_response.get('data', [])
-        return [
-                    (product.get("id"),
-                     product.get('attributes', {}).get('title'),)
-                    for product in products
-               ]
+        return [(product.get("id"),
+                 product.get('attributes', {}).get('title'), )
+                for product in products]
 
     def get_product(self, product_id):
         params = {'populate': '*'}
-        api_response = self.get_api(f'products/{product_id}', params)
+        api_response = self.read(f'products/{product_id}', params)
         product = api_response.get('data', {}).get('attributes', {})
         title = product.get('title', '')
         description = product.get('description', '')
@@ -94,11 +92,11 @@ class Strapi():
 
     def get_or_create_cart(self, telegram_id):
         params = {'filters[telegram_id][$eq]': telegram_id}
-        api_response = self.get_api('carts', params)
+        api_response = self.read('carts', params)
         cart = api_response.get('data')
         if not cart:
             payload = {"data": {"telegram_id": telegram_id}}
-            api_response = self.post_api('carts', payload)
+            api_response = self.create('carts', payload)
             cart = api_response.get('data')
         else:
             cart = cart[0]
@@ -108,15 +106,15 @@ class Strapi():
         cart_id = self.get_or_create_cart(telegram_id)
         payload = {"data": {"product": product_id, "cart": cart_id},
                    "quantity": quantity}
-        self.post_api('cart-products', payload)
+        self.create('cart-products', payload)
 
     def remove_from_cart(self, cart_product_id):
-        self.delete_api(f'cart-products/{cart_product_id}')
+        self.delete(f'cart-products/{cart_product_id}')
 
     def get_cart_content(self, telegram_id):
         cart_id = self.get_or_create_cart(telegram_id)
         params = {'populate': 'cart_products.product'}
-        api_response = self.get_api(f'carts/{cart_id}', params)
+        api_response = self.read(f'carts/{cart_id}', params)
         api_cart_products = (api_response.get('data', {}).get('attributes', {})
                              .get('cart_products', {}).get('data', []))
         cart_products = [
@@ -139,4 +137,4 @@ class Strapi():
     def save_email(self, telegram_id, email):
         cart_id = self.get_or_create_cart(telegram_id)
         payload = {"data": {"email": email}}
-        return self.put_api(f'carts/{cart_id}', payload)
+        return self.update(f'carts/{cart_id}', payload)
