@@ -3,7 +3,7 @@ from io import BytesIO
 from urllib.parse import urljoin
 
 import requests
-from requests.exceptions import ConnectionError, ReadTimeout
+from requests.exceptions import HTTPError
 from retry import retry
 
 
@@ -21,8 +21,7 @@ class Strapi():
         self.base_url = base_url
         self.api_url = urljoin(base_url, api_path)
 
-    @retry((ReadTimeout, ConnectionError),
-           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    @retry(HTTPError, delay=0, max_delay=3600, backoff=2, jitter=1, )
     def read(self, endpoint, params={}):
         api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
@@ -31,8 +30,7 @@ class Strapi():
         logger.debug(f"Получили ответ. {response=}")
         return response.json()
 
-    @retry((ReadTimeout, ConnectionError),
-           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    @retry(HTTPError, delay=0, max_delay=3600, backoff=2, jitter=1, )
     def create(self, endpoint, data={}):
         api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
@@ -41,8 +39,7 @@ class Strapi():
         logger.debug(f"Получили ответ. {response=}")
         return response.json()
 
-    @retry((ReadTimeout, ConnectionError),
-           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    @retry(HTTPError, delay=0, max_delay=3600, backoff=2, jitter=1, )
     def update(self, endpoint, data={}):
         api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
@@ -51,8 +48,7 @@ class Strapi():
         logger.debug(f"Получили ответ. {response=}")
         return response.json()
 
-    @retry((ReadTimeout, ConnectionError),
-           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    @retry(HTTPError, delay=0, max_delay=3600, backoff=2, jitter=1, )
     def delete(self, endpoint,):
         api_url = urljoin(self.api_url, endpoint)
         logger.debug(f'Send request {api_url=}')
@@ -61,8 +57,7 @@ class Strapi():
         logger.debug(f"Получили ответ. {response=}")
         return response.json()
 
-    @retry((ReadTimeout, ConnectionError),
-           delay=0, max_delay=3600, backoff=2, jitter=1, )
+    @retry(HTTPError, delay=0, max_delay=3600, backoff=2, jitter=1, )
     def get_asset(self, url):
         resource_url = urljoin(self.base_url, url)
         logger.debug(f'Send request {resource_url=}')
